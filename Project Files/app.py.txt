@@ -1,0 +1,69 @@
+import numpy as np
+import pickle
+import joblib
+import matplotlib
+import matplotlib.pyplot as plt
+import time
+import pandas as pd
+import os
+import requests
+
+# NOTE: you must manually set API_KEY below using information retrieved from your IBM Cloud account
+API_KEY = "WSNuZwDwuJSVssUQo9Hg9Rf8dRIPvfdK4R_4yLxE"
+token_response = requests.post("https://iam.cloud.ibm.com/identity/token", 
+                                data={"apikey": API_KEY, 
+                                      "grant_type": "urn:ibm:params:oauth:grant-type:apikey"},
+                                headers={"Content-Type": "application/x-www-form-urlencoded"})
+
+mltoken = token_response.json()["access_token"]
+
+header = {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + mltoken}
+
+# NOTE: manually define and pass the array(s) of values to be scored in the next cell
+from flask import Flask, request, jsonify, render_template
+
+app = Flask(__name__)
+
+file = open(r'C:/Users/ARE VINAY KUMAR/OneDrive/Documents/Traffic_volume_estimation/trafficvolume.csv/model.pkl', 'rb')
+model = pickle.load(open(r'C:/Users/ARE VINAY KUMAR/OneDrive/Documents/Traffic_volume_estimation/trafficvolume.csv/model.pkl', 'rb'))
+scale = pickle.load(open(r'C:/Users/ARE VINAY KUMAR/OneDrive/Documents/Traffic_volume_estimation/trafficvolume.csv/scale.pkl', 'rb'))
+@app.route('/')  # route to display the home page
+def home():
+    return render_template("index.html")  # rendering the home page
+
+@app.route('/predict', methods=["POST", "GET"])  # route to show the predictions
+def predict():
+    # reading the inputs given by the user
+    input_feature = [float(x) for x in request.form.values()]
+    features_values = [np.array(input_feature)]
+    names = ['holiday', 'temp', 'rain', 'snow', 'weather', 'year', 'month', 
+             'day', 'hour', 'minutes', 'seconds']
+    data = pd.DataFrame(features_values, columns=names)
+    
+    # scale transform
+    data = scale.transform(data)
+
+    # predictions using the loaded model file
+    prediction = model.predict(data)
+    print(prediction)
+
+    payload_scoring = {
+        "input_data": [{
+            "field": ['holiday', 'temp', 'rain', 'snow', 'weather', 'year', 'month',
+                      'day', 'hour', 'minutes', 'seconds'],
+            "values": [input_feature]
+        }]
+    }
+
+    response_scoring = requests.post('https://us-south.ml.cloud.ibm.com/ml/v4/deployments/xxx/predictions?version=2021-05-01',
+                                     json=payload_scoring,
+                                     headers={'Authorization': 'Bearer ' + mltoken})
+    print("scoring response")
+    print(response_scoring.json())
+
+    text = "Estimated Traffic Volume is "
+    return render_template("index.html", prediction_text=text + str(prediction[0]))
+
+if __name__ == "__main__":
+    # app.run(host='0.0.0.0', port=8080, debug=True)  # running the app
+    app.run(port=os.environ.get("PORT", 5000), debug=True, use_reloader=False)
